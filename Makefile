@@ -1,8 +1,9 @@
 build:
-	podman build --platform linux/arm64 -t telegram-bot .
+	GOOS=linux GOARCH=arm64 go build -o go-water-me
+	chmod +x go-water-me
 
-up:
-	podman run -d --name telegram-bot --restart=unless-stopped telegram-bot
+deploy:
+	sudo systemctl restart go-water-me.service
 
-down:
-	podman stop telegram-bot
+run:
+	./go-water-me
