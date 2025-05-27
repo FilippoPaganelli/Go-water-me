@@ -7,3 +7,6 @@ deploy:
 
 run:
 	./go-water-me
+
+logs:
+	journalctl -u go-water-me.service -f

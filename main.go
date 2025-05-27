@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 
@@ -12,41 +11,45 @@ import (
 	"tinygo.org/x/bluetooth"
 )
 
-var adapter = bluetooth.DefaultAdapter
+var (
+	adapter                 = bluetooth.DefaultAdapter
+	soilMoistureServiceUUID = "e969c779-776f-4979-8eb4-d6250e8ea79b"
+	// soilMoistureCharacteristicUUID = "4f6b5586-709d-4b06-94fd-8cbea7c32c28"
+)
+
+const ARDUINO_DEVICE_NAME string = "Go-water-me (peripheral)"
 
 func main() {
-	loadEnv()
-
 	// ----- Bluetooth
 
-	const ARDUINO_DEVICE_NAME string = "Go-water-me (peripheral)"
-	var arduino bluetooth.ScanResult
-
-	// Enable BLE interface.
+	// Enable BLE interface
 	must("enable BLE stack", adapter.Enable())
 	println("INFO: BLE adapter enabled")
 
-	// Start scanning.
-	println("INFO: Scanning for BLE peripherals...")
-	err := adapter.Scan(func(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
-		if device.LocalName() == ARDUINO_DEVICE_NAME {
-			arduino = device
+	// Start scanning
+	found := make(chan bluetooth.ScanResult)
+	go scanForArduino(found)
+	arduino := <-found
 
-			err := adapter.StopScan()
-			if nil != err {
-				panic(err)
-			}
-		}
-	})
-	must("start scan", err)
+	// Try to connect
+	peripheral, err := adapter.Connect(arduino.Address, bluetooth.ConnectionParams{})
+	if err != nil {
+		println("ERROR: ", err.Error())
+		return
+	}
 
-	println("INFO: Found Arduino peripheral!", fmt.Sprintf("\"%s\"", arduino.LocalName()))
+	println("INFO: connected to ", peripheral.Address.String())
 
-	var serviceData = arduino.ServiceData()
-	println(serviceData)
+	services, err := peripheral.DiscoverServices(soilMoistureServiceUUID)
+	if err != nil {
+		println("ERROR: ", err.Error())
+		return
+	}
+	println(services)
 
 	// ----- Telegram bot
 
+	loadEnv()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
@@ -61,6 +64,23 @@ func main() {
 
 	b.RegisterHandler(bot.HandlerTypeMessageText, "foo", bot.MatchTypeCommand, fooHandler)
 	b.Start(ctx)
+}
+
+func scanForArduino(found chan bluetooth.ScanResult) {
+	println("INFO: Scanning for BLE peripherals...")
+	err := adapter.Scan(func(adapter *bluetooth.Adapter, device bluetooth.ScanResult) {
+		if device.LocalName() == ARDUINO_DEVICE_NAME {
+
+			err := adapter.StopScan()
+			if nil != err {
+				panic(err)
+			}
+			println("INFO: Found peripheral!", device.LocalName())
+
+			found <- device
+		}
+	})
+	must("start scan", err)
 }
 
 func loadEnv() string {
